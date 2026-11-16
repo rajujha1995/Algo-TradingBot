@@ -1,5 +1,11 @@
 @import "tailwindcss";
 :root {
+  color-scheme: dark;
+  --surface: #14232c;
+  --surface-raised: #1b303a;
+  --border: #2b414b;
+  --text: #e1ecef;
+  --muted: #a4b8c1;
   font-family:
     Inter,
     ui-sans-serif,
@@ -8,8 +14,8 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #17343d;
-  background: #f5f7f8;
+  color: var(--text);
+  background: #0b151d;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   font-size: 14px;
@@ -797,3 +803,49 @@ button svg {
 @media (prefers-reduced-motion: reduce) { .refresh-spin { animation: none; } }
 @media (max-width: 1100px) { .overview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .market-hero { padding: 28px; } }
 @media (max-width: 700px) { .market-hero, .overview-bottom { grid-template-columns: 1fr; } .market-hero { padding: 24px; gap: 20px; } .hero-status { padding: 20px; } .overview-metrics { gap: 10px; } .overview-metrics article { padding: 16px; } .execution-badge { display: none; } .panel-heading { flex-wrap: wrap; gap: 12px; } .heading-muted { display: block; margin: 6px 0 0; } }
+
+/* Dark surfaces share the same palette across the research and account views. */
+header, .panel, .kpi, .status-strip, .login-card, .overview-metrics article {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+p, .breadcrumb, .environment, .eyebrow, .last-updated, .footnote, .muted,
+.kpi > span, .kpi > small, dt, label, .login-note, .login-card .brand small,
+.research-kpis span, .assessment-grid h3 small, .overview-metrics small,
+.overview-metrics article > div, .heading-muted, .market-movers td small,
+.execution-badge, .empty-state, footer { color: var(--muted); }
+.breadcrumb strong, .status-strip strong, .empty-state h3, dd, td,
+.text-panel pre { color: var(--text); }
+.panel-heading, dl > div, td, footer, .assessment-grid article { border-color: var(--border); }
+.outline, input, select {
+  background: #102029;
+  color: var(--text);
+  border-color: #3d5661;
+}
+.outline:hover { background: var(--surface-raised); }
+.primary { background: #277d70; color: #fff; }
+.primary:hover { background: #318d7e; }
+.primary:disabled { opacity: .65; }
+input::placeholder { color: #95aab4; }
+th, .mover-meta { background: #102029; color: var(--muted); border-color: var(--border); }
+tbody tr:hover { background: #1a2f39; }
+.tag, .mover-rank { background: #1c353b; color: #b2d4ca; border-color: #31534f; }
+.pill, .realtime-badge { background: #173c35; color: #99e4c6; }
+.market-movers .eyebrow { color: #a1d6c4; }
+.positive { color: #7cdbb1; }
+.negative { color: #ff9e98; }
+.move-bar { background: #2b4246; }
+.move-bar > span { background: #7cdbb1; }
+.error, .danger { background: #382327; border-color: #724347; color: #ffb4aa; }
+.danger:hover { background: #4c2b30; }
+.notice { background: #303120; border-color: #5d613d; color: #e0d69e; }
+.notice p { color: #cec593; }
+.login { background: radial-gradient(ellipse at top, #1c3e42, #0b151d 70%); }
+.login-card { border: 1px solid var(--border); box-shadow: 0 24px 80px #0005; }
+.market-hero { border: 1px solid #31564f; box-shadow: 0 16px 40px #0002; }
+.market-hero .button { background: #214a43; color: #d2f3e4; border: 1px solid #50796d; }
+.market-hero .button:hover { background: #2c5c50; }
+.environment-dialog { color: var(--text); border: 1px solid #45616a; }
+.environment-dialog::backdrop { background: #02080dc9; }
+::selection { background: #367c6b; color: white; }

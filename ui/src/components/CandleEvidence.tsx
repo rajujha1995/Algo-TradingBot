@@ -10,8 +10,8 @@ export function CandleEvidence({ evidence }: { evidence: Evidence }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current || !evidence.candles.length) return;
-    const chart = echarts.init(ref.current);
-    chart.setOption({ animation: false, tooltip: { trigger: "axis", renderMode: "richText" }, grid: { left: 65, right: 24, top: 20, bottom: 70 }, xAxis: { type: "category", data: evidence.candles.map(c => time(c.timestampUtc)) }, yAxis: { scale: true }, dataZoom: [{ type: "inside" }, { type: "slider", bottom: 10 }], series: [{ name: "Completed broker candles", type: "candlestick", data: evidence.candles.map(c => [c.open, c.close, c.low, c.high]), itemStyle: { color: "#147d69", color0: "#ce6a65", borderColor: "#147d69", borderColor0: "#ce6a65" } }] });
+    const chart = echarts.init(ref.current, "dark");
+    chart.setOption({ backgroundColor: "transparent", animation: false, tooltip: { trigger: "axis", renderMode: "richText" }, grid: { left: 65, right: 24, top: 20, bottom: 70 }, xAxis: { type: "category", data: evidence.candles.map(c => time(c.timestampUtc)) }, yAxis: { scale: true }, dataZoom: [{ type: "inside" }, { type: "slider", bottom: 10 }], series: [{ name: "Completed broker candles", type: "candlestick", data: evidence.candles.map(c => [c.open, c.close, c.low, c.high]), itemStyle: { color: "#7cdbb1", color0: "#ff9e98", borderColor: "#7cdbb1", borderColor0: "#ff9e98" } }] });
     const observer = new ResizeObserver(() => chart.resize()); observer.observe(ref.current);
     return () => { observer.disconnect(); chart.dispose(); };
   }, [evidence]);
