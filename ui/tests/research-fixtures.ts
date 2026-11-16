@@ -1,0 +1,1 @@
+export const emptyResearch = { sessions: [], assessments: [], journal: [], summary: { signals: 0, filled: 0, closed: 0, uncertain: 0, realizedScenarioNet: 0, knownClosedWinRate: null, daysWithObservations: 0, observedMinutes: 0, fullWatchlistMinutes: 0 }, daily: [], model: "Test fixture; no market data", review: "Five observed days are a trial, not proof of returns." };

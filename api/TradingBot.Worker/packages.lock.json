@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "tradingbot.application": {
+        "type": "Project",
+        "dependencies": {
+          "TradingBot.Domain": "[1.0.0, )"
+        }
+      },
+      "tradingbot.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}

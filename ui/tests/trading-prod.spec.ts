@@ -1,0 +1,24 @@
+import { test, expect } from "@playwright/test";
+test("PROD browser confirms mode without starting a session and renews CSRF", async ({ page }) => {
+  test.skip(!process.env.E2E_ISOLATED, "Requires a disposable PROD host");
+  await page.goto("/");
+  await page.getByLabel("Operator password").fill(process.env.E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.getByRole("button", { name: "Go LIVE", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Go LIVE", exact: true }).click();
+  await page.getByLabel("Type GO LIVE exactly").fill("GO LIVE");
+  await page.getByRole("button", { name: "Confirm GO LIVE" }).click();
+  await expect(page.getByRole("button", { name: "Use PAPER" })).toBeVisible();
+  await page.getByRole("navigation").getByRole("button", { name: "Trading", exact: true }).click();
+  await expect(page.getByText("Real-money trading is unavailable:", { exact: false })).toBeVisible();
+  const status = await (await page.request.get("/api/trading/status")).json();
+  if (!status.startWindowOpen) await expect(page.getByRole("button", { name: "Start Trading", exact: true })).toBeDisabled();
+  expect((await (await page.request.get("/api/system/status")).json()).state).not.toContain("RUNNING");
+  await page.getByRole("button", { name: "Use PAPER" }).click();
+  await page.getByLabel("Type PAPER exactly").fill("PAPER");
+  await page.getByRole("button", { name: "Confirm PAPER" }).click();
+  await expect(page.getByRole("button", { name: "Go LIVE", exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/prod-trading-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "test-results/prod-trading-mobile.png", fullPage: true });
+});
