@@ -7,13 +7,14 @@ test("one workspace confirms watching, keeps order execution off and displays da
   await page.route("**/api/auth/csrf", r => r.fulfill({json:{token:"fixture"}}));
   await page.route("**/api/workspace", r => r.fulfill({json:state}));
   await page.route("**/api/trading/start", r => { expect(r.request().postDataJSON().confirmation).toBe("START WATCHING"); started++; state={...state,state:"WATCHING"}; return r.fulfill({json:{state:"WATCHING"}}); });
-  await page.route("**/api/market/top-gainers", r => r.fulfill({json:{items:[{symbol:"FIXTURE_GAINER",code:"NSE_1",exchange:"NSE",price:120,previousClose:100,todayClose:115,closeDate:"2026-11-17",changePercent:20,volume:1000},{symbol:"PENDING_CLOSE",code:"NSE_2",exchange:"NSE",price:110,previousClose:100,todayClose:null,latestClose:100,latestCloseDate:"2026-11-16",changePercent:10,volume:500}],universeCount:2,quotedCount:2,scanStartedUtc:state.serverUtc,fetchedUtc:state.serverUtc,scope:"Fixture universe",freshness:"Snapshot fixture"}}));
+  await page.route("**/api/market/top-gainers", r => r.fulfill({json:{items:[{symbol:"FIXTURE_GAINER",code:"NSE_1",exchange:"NSE",price:120,previousClose:100,todayClose:115,closeDate:"2026-11-17",changePercent:20,volume:1000},{symbol:"PENDING_CLOSE",code:"NSE_2",exchange:"NSE",price:110,previousClose:100,todayClose:null,latestClose:100,latestCloseDate:"2026-11-16",changePercent:10,volume:500}],universeCount:5,quotedCount:2,rejectedCount:1,unresolvedCount:2,scanStartedUtc:state.serverUtc,fetchedUtc:state.serverUtc,scope:"Fixture universe",freshness:"Snapshot fixture"}}));
   await page.goto("/");
   await expect(page.getByRole("heading",{name:"A clearer view of the market."})).toBeVisible();
   await expect(page.getByText("Execution off",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:/Go LIVE|PAPER|Start Trading/})).toHaveCount(0);
   const row=page.getByRole("row").filter({hasText:"FIXTURE_GAINER"}); await expect(row).toContainText("₹115.00"); await expect(row).toContainText("2026-11-17");
   const pending=page.getByRole("row").filter({hasText:"PENDING_CLOSE"}); await expect(pending).toContainText("Pending / unavailable"); await expect(pending).toContainText("Last completed 2026-11-16");
+  await expect(page.getByText("Broker rejected 1 instrument codes. 2 instruments could not be checked within this scan. Rankings cover successfully returned quotes only.")).toBeVisible();
   await page.screenshot({path:"test-results/realtime-desktop.png",fullPage:true});
   await page.getByRole("button",{name:"Start Watching",exact:true}).click();
   const confirm=page.getByRole("button",{name:"Confirm START WATCHING"}); await expect(confirm).toBeDisabled();

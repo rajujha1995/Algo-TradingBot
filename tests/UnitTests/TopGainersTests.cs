@@ -36,12 +36,51 @@ public class TopGainersTests
     Assert.Equal(2, fake.QuoteCalls); Assert.Equal(1, fake.MasterCalls);
     Assert.Same(snapshot, await service.GetAsync(default)); Assert.Equal(2, fake.QuoteCalls);
   }
+  [Fact] public async Task RejectedInstrumentDoesNotDiscardValidNeighboursAndIsRecheckedLater()
+  {
+    var fake = new FakeBroker(); fake.InvalidCodes.Add("NSE_73");
+    var clock = new MutableClock(); var service = new TopGainersService(fake, clock);
+    var snapshot = await service.GetAsync(default);
+    Assert.Equal(204, snapshot.QuotedCount); Assert.Equal(1, snapshot.RejectedCount); Assert.Equal(0, snapshot.UnresolvedCount);
+    Assert.Equal("S205", snapshot.Items[0].Symbol); Assert.DoesNotContain(snapshot.Items, x => x.Code == "NSE_73");
+    clock.Now = clock.Now.AddMinutes(2); fake.Requests.Clear();
+    Assert.Equal(204, (await service.GetAsync(default)).QuotedCount);
+    Assert.DoesNotContain(fake.Requests, codes => codes.Split(',').Contains("NSE_73"));
+    clock.Now = clock.Now.AddHours(1); fake.InvalidCodes.Clear();
+    var recovered = await service.GetAsync(default); Assert.Equal(205, recovered.QuotedCount); Assert.Equal(0, recovered.RejectedCount);
+  }
+  [Fact] public async Task BroadRejectionsHaveABoundedReadBudgetAndExplicitPartialCoverage()
+  {
+    var fake = new FakeBroker { Count = 600 };
+    foreach (var code in Enumerable.Range(1, 600).Select(i => $"NSE_{i}").OrderBy(x => x, StringComparer.Ordinal).Take(200)) fake.InvalidCodes.Add(code);
+    var snapshot = await new TopGainersService(fake, TimeProvider.System).GetAsync(default);
+    Assert.Equal(400, snapshot.QuotedCount); Assert.True(snapshot.UnresolvedCount > 0);
+    Assert.Equal(600, snapshot.QuotedCount + snapshot.RejectedCount + snapshot.UnresolvedCount);
+    Assert.InRange(fake.QuoteCalls, 3, 67);
+  }
+  [Fact] public async Task OtherBrokerFailuresAbortWithoutSubdivision()
+  {
+    var fake = new FakeBroker { Failure = new InvalidOperationException("Broker rate limit reached") };
+    await Assert.ThrowsAsync<InvalidOperationException>(() => new TopGainersService(fake, TimeProvider.System).GetAsync(default));
+    Assert.Equal(1, fake.QuoteCalls);
+  }
+  sealed class MutableClock : TimeProvider {
+    public DateTimeOffset Now = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+    public override DateTimeOffset GetUtcNow() => Now;
+  }
   sealed class FakeBroker : ITradingBroker
   {
     public int QuoteCalls, MasterCalls;
-    public Task<string> GetInstrumentsAsync(CancellationToken ct) { MasterCalls++; return Task.FromResult(Header + string.Join('\n', Enumerable.Range(1, 205).Select(i => $"NSE,E,{i},EQUITY,S{i},ISIN{i}"))); }
+    public int Count = 205;
+    public HashSet<string> InvalidCodes = [];
+    public List<string> Requests = [];
+    public Exception? Failure;
+    public Task<string> GetInstrumentsAsync(CancellationToken ct) { MasterCalls++; return Task.FromResult(Header + string.Join('\n', Enumerable.Range(1, Count).Select(i => $"NSE,E,{i},EQUITY,S{i},ISIN{i}"))); }
     public Task<JsonElement> GetQuotesAsync(string codes, CancellationToken ct) {
       QuoteCalls++; Assert.InRange(codes.Split(',').Length, 1, 200);
+      Requests.Add(codes);
+      if (Failure != null) throw Failure;
+      if (codes.Split(',').Any(InvalidCodes.Contains)) throw new BrokerInvalidScripCodesException();
       return Task.FromResult(JsonSerializer.SerializeToElement(new { status = "success", data = codes.Split(',').ToDictionary(x => x, x => new { live_price = 100 + int.Parse(x.Split('_')[1]), prev_close = 100, volume = 100 }) }));
     }
     public Task<JsonElement> GetProfileAsync(CancellationToken ct) => throw new NotSupportedException();

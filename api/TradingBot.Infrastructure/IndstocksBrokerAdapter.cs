@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using TradingBot.Application;
 namespace TradingBot.Infrastructure;
+public sealed class BrokerInvalidScripCodesException() : InvalidOperationException("Broker rejected one or more quote instrument codes; quote availability must be checked individually.");
 // Read-only by construction: no method can send an HTTP POST, PUT or DELETE.
 // Raw JSON responses retain the broker's documented schema without guessed field mapping.
 public sealed partial class IndstocksBrokerAdapter(HttpClient client, TradingOptions options) : ITradingBroker, IBrokerAccountReader, IClosingPriceReader
@@ -19,8 +20,17 @@ public sealed partial class IndstocksBrokerAdapter(HttpClient client, TradingOpt
       using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.indstocks.com" + path);
       request.Headers.TryAddWithoutValidation("Authorization", options.AccessToken); lastRequest = DateTime.UtcNow;
       using var response = await client.SendAsync(request, ct);
-      if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) throw new InvalidOperationException("Broker authentication failed. Renew your access token in backend configuration and restart. No orders were sent.");
+      if (response.StatusCode == HttpStatusCode.Unauthorized) throw new InvalidOperationException("Broker authentication failed. Renew your access token in backend configuration and restart. No orders were sent.");
+      if (response.StatusCode == HttpStatusCode.Forbidden) throw new InvalidOperationException("Broker denied this request (HTTP 403). Check token validity and market-data permissions. No orders were sent.");
       if (response.StatusCode == HttpStatusCode.TooManyRequests) throw new InvalidOperationException("Broker rate limit reached. Wait before requesting again.");
+      if (response.StatusCode == HttpStatusCode.BadRequest && path.StartsWith("/market/quotes/", StringComparison.Ordinal)) {
+        // Only this documented validation error permits splitting a read-only batch.
+        // Never expose arbitrary upstream payloads or treat auth/rate/server errors as bad symbols.
+        try {
+          using var error = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+          if (new[] { "debug_info", "message" }.Any(key => error.RootElement.ValueKind == JsonValueKind.Object && error.RootElement.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() == "Invalid scrip codes or mode")) throw new BrokerInvalidScripCodesException();
+        } catch (JsonException) { }
+      }
       if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Broker request failed (HTTP {(int)response.StatusCode}). No automatic retry was performed.");
       return await response.Content.ReadAsStringAsync(ct);
     }

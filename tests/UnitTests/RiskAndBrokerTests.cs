@@ -25,10 +25,30 @@ public class RiskAndBrokerTests
   [Fact] public async Task InvalidInstrumentsFailBeforeNetwork() { var handler = new RecordingHandler(HttpStatusCode.OK); var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options()); await Assert.ThrowsAsync<InvalidOperationException>(() => broker.GetQuotesAsync("RELIANCE", default)); Assert.Equal(0, handler.Calls); }
   [Fact] public async Task MissingTokenFailsBeforeNetwork() { var handler = new RecordingHandler(HttpStatusCode.OK); var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options()); await Assert.ThrowsAsync<InvalidOperationException>(() => broker.GetFundsAsync(default)); Assert.Equal(0, handler.Calls); }
   [Fact] public async Task TimeoutIsNotRetried() { var handler = new RecordingHandler(HttpStatusCode.OK) { Timeout = true }; var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options() with { AccessToken = "test" }); await Assert.ThrowsAsync<TaskCanceledException>(() => broker.GetProfileAsync(default)); Assert.Equal(1, handler.Calls); }
+  [Theory]
+  [InlineData("debug_info")]
+  [InlineData("message")]
+  public async Task QuoteCodeRejectionIsTypedWithoutLeakingUpstreamDetails(string field) {
+    var handler = new RecordingHandler(HttpStatusCode.BadRequest) { Body = "{\"" + field + "\":\"Invalid scrip codes or mode\",\"private\":\"sensitive-upstream-detail\"}" };
+    var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options() with { AccessToken = "test" });
+    var error = await Assert.ThrowsAsync<BrokerInvalidScripCodesException>(() => broker.GetQuotesAsync("NSE_1", default));
+    Assert.DoesNotContain("sensitive", error.Message); Assert.Equal(1, handler.Calls);
+  }
+  [Theory]
+  [InlineData(400, "{\"message\":\"Different validation error\"}")]
+  [InlineData(400, "not-json")]
+  [InlineData(401, "{\"debug_info\":\"Invalid scrip codes or mode\"}")]
+  [InlineData(429, "{\"debug_info\":\"Invalid scrip codes or mode\"}")]
+  public async Task OtherQuoteErrorsAreNotClassifiedAsInvalidSymbols(int status, string body) {
+    var handler = new RecordingHandler((HttpStatusCode)status) { Body = body };
+    var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options() with { AccessToken = "test" });
+    await Assert.ThrowsAsync<InvalidOperationException>(() => broker.GetQuotesAsync("NSE_1", default)); Assert.Equal(1, handler.Calls);
+  }
   sealed class RecordingHandler(HttpStatusCode status) : HttpMessageHandler
   {
     public int Calls; public string? Auth; public string? Uri; public bool Timeout;
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) { Calls++; Auth = request.Headers.GetValues("Authorization").Single(); Uri = request.RequestUri!.ToString(); if (Timeout) throw new TaskCanceledException(); return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("{\"status\":\"success\",\"data\":{}}") }); }
+    public string Body = "{\"status\":\"success\",\"data\":{}}";
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) { Calls++; Auth = request.Headers.GetValues("Authorization").Single(); Uri = request.RequestUri!.ToString(); if (Timeout) throw new TaskCanceledException(); return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(Body) }); }
   }
 }
 public class BacktestTests

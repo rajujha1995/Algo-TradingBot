@@ -5,12 +5,13 @@ namespace TradingBot.Infrastructure;
 
 public sealed record EquityInstrument(string Code, string Symbol, string Exchange, string Isin);
 public sealed record Gainer(string Symbol, string Exchange, string Code, decimal Price, decimal ChangePercent, decimal Volume, decimal? PreviousClose = null, decimal? TodayClose = null, string? CloseDate = null, string CloseStatus = "Not verified", decimal? LatestClose = null, string? LatestCloseDate = null);
-public sealed record GainersSnapshot(IReadOnlyList<Gainer> Items, int UniverseCount, int QuotedCount, DateTimeOffset ScanStartedUtc, DateTimeOffset FetchedUtc, string Scope, string Freshness);
+public sealed record GainersSnapshot(IReadOnlyList<Gainer> Items, int UniverseCount, int QuotedCount, DateTimeOffset ScanStartedUtc, DateTimeOffset FetchedUtc, string Scope, string Freshness, int RejectedCount = 0, int UnresolvedCount = 0);
 
 public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock, IClosingPriceReader? history = null)
 {
   readonly SemaphoreSlim gate = new(1, 1);
   GainersSnapshot? cached;
+  readonly Dictionary<string, DateTimeOffset> rejectedUntil = new(StringComparer.Ordinal);
   public async Task<GainersSnapshot> GetAsync(CancellationToken ct)
   {
     await gate.WaitAsync(ct);
@@ -21,11 +22,24 @@ public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock,
       if (instruments.Count == 0) throw new InvalidOperationException("Broker instrument master contains no supported cash equities. Gainers are unavailable.");
       var all = new List<Gainer>();
       var quoted = 0;
-      foreach (var batch in instruments.Chunk(200)) {
-        var response = await broker.GetQuotesAsync(string.Join(',', batch.Select(x => x.Code)), ct);
-        var result = RankQuotes(batch, response);
-        quoted += result.Quoted;
-        all.AddRange(result.Items);
+      var rejected = 0; var unresolved = 0; var subdivisionsRemaining = 64;
+      foreach (var code in rejectedUntil.Where(x => x.Value <= started).Select(x => x.Key).ToArray()) rejectedUntil.Remove(code);
+      foreach (var batch in instruments.Where(x => !rejectedUntil.ContainsKey(x.Code)).Chunk(200)) await ReadBatch(batch, false);
+      rejected += instruments.Count(x => rejectedUntil.ContainsKey(x.Code));
+
+      async Task ReadBatch(EquityInstrument[] batch, bool subdivision) {
+        ct.ThrowIfCancellationRequested();
+        if (subdivision && subdivisionsRemaining-- <= 0) { unresolved += batch.Length; return; }
+        try {
+          var response = await broker.GetQuotesAsync(string.Join(',', batch.Select(x => x.Code)), ct);
+          var result = RankQuotes(batch, response);
+          quoted += result.Quoted; all.AddRange(result.Items);
+        } catch (BrokerInvalidScripCodesException) {
+          if (batch.Length == 1) { rejectedUntil[batch[0].Code] = clock.GetUtcNow().AddHours(1); return; }
+          var middle = batch.Length / 2;
+          await ReadBatch(batch[..middle], true);
+          await ReadBatch(batch[middle..], true);
+        }
       }
       if (quoted == 0) throw new InvalidOperationException("No usable equity quotes returned. Gainers are unavailable.");
       var leaders = all.OrderByDescending(x => x.ChangePercent).ThenBy(x => x.Symbol, StringComparer.Ordinal).Take(10).ToList();
@@ -43,7 +57,7 @@ public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock,
       }
       cached = new(leaders, instruments.Count, quoted, started, clock.GetUtcNow(),
         "NSE/BSE cash EQUITY across market caps, no cap filter; one listing per ISIN, NSE preferred. Unclassified instrument rows excluded.",
-        "Quotes are timestamped fetch snapshots, not a streamed market-wide ranking. Today's close uses a dated broker 1day candle after 16:00 IST on normal weekdays; it is not an exchange-certified official close and may be revised. Missing closes remain unavailable. Server scan cache: one minute.");
+        "Quotes are timestamped fetch snapshots, not a streamed market-wide ranking. Today's close uses a dated broker 1day candle after 16:00 IST on normal weekdays; it is not an exchange-certified official close and may be revised. Missing closes remain unavailable. Server scan cache: one minute. Quote validation subdivisions are bounded; rejected codes are rechecked after one hour.", rejected, unresolved);
       return cached;
     } finally { gate.Release(); }
   }
