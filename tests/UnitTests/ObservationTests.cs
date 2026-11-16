@@ -25,9 +25,9 @@ public class ObservationTests
   [Fact] public void HistoricalSecondsAreNotConfusedWithRequestMilliseconds()
   {
     using var json = JsonDocument.Parse("""{"success":true,"data":{"NSE_123":{"candles":[{"ts":1794819600,"o":100,"h":102,"l":99,"c":101,"v":500}]}}}""");
-    var candle = Assert.Single(ObservationEngine.ParseCandles(json.RootElement, "NSE_123"));
+    var candle = Assert.Single(RealtimeResearchEngine.ParseCandles(json.RootElement, "NSE_123"));
     Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794819600).UtcDateTime, candle.TimestampUtc);
-    Assert.Empty(ObservationEngine.ParseCandles(json.RootElement, "NSE_456"));
+    Assert.Empty(RealtimeResearchEngine.ParseCandles(json.RootElement, "NSE_456"));
   }
   static List<Candle> Bars()
   {
@@ -42,7 +42,7 @@ public class ObservationTests
     Assert.True(decision.Qualifies, decision.Reason);
     Assert.Contains("relative volume", decision.Reason); Assert.Contains("News/index context not checked", decision.Reason);
     Assert.True(decision.Stop < decision.Entry); Assert.True(decision.Target > decision.Entry);
-    Assert.InRange(decision.CapitalFitQuantity, 0, 1); Assert.Equal(60, decision.Evidence.Candles.Count);
+    Assert.Equal(60, decision.Evidence.Candles.Count);
   }
   [Fact] public void FormingAndFutureCandlesCannotAlterTheConfirmedDecision()
   {
@@ -58,33 +58,5 @@ public class ObservationTests
     bars = Bars(); bars.RemoveAt(20); bars.Insert(0, bars[0] with { TimestampUtc = bars[0].TimestampUtc.AddMinutes(-5) });
     Assert.Contains("missing intraday", ObservationStrategy.Evaluate(bars, new DateTimeOffset(Now)).Reason);
     Assert.False(ObservationStrategy.Evaluate(Bars(), new DateTimeOffset(Now.AddMinutes(20))).Qualifies);
-  }
-  static ResearchSuggestion Pending() => new() { Code = "NSE_123", SuggestedUtc = Now.AddSeconds(-5), ProposedEntry = 1000, EntryLimit = 1025, Stop = 900, Target = 1200, FeedGeneration = 1 };
-  [Fact] public void AssumedEntryRequiresAFreshTickAfterSuggestion()
-  {
-    var s = Pending();
-    ObservationEngine.ApplyTick(s, new("NSE_123", 1000, s.SuggestedUtc, Now, 1), Now, 5);
-    Assert.Null(s.EntryPrice);
-    ObservationEngine.ApplyTick(s, new("NSE_123", 1000, Now, Now, 1), Now, 5);
-    Assert.Equal("OPEN", s.Status); Assert.Equal(1000.5m, s.EntryPrice);
-  }
-  [Fact] public void StopGapUsesObservedPriceAndAdverseSlippageRatherThanPromisedStop()
-  {
-    var s = Pending(); ObservationEngine.ApplyTick(s, new("NSE_123", 1000, Now, Now, 1), Now, 5);
-    ObservationEngine.ApplyTick(s, new("NSE_123", 850, Now.AddSeconds(1), Now.AddSeconds(1), 1), Now.AddSeconds(1), 5);
-    Assert.Equal("EXIT_STOP", s.Status); Assert.True(s.ExitPrice < 850); Assert.True(s.NetPnl < -1500);
-  }
-  [Fact] public void StaleWrongSymbolOrWrongGenerationCannotFill()
-  {
-    var s = Pending();
-    ObservationEngine.ApplyTick(s, new("NSE_999", 1000, Now, Now, 1), Now, 5);
-    ObservationEngine.ApplyTick(s, new("NSE_123", 1000, Now, Now, 2), Now, 5);
-    ObservationEngine.ApplyTick(s, new("NSE_123", 1000, Now, Now, 1), Now.AddSeconds(30), 5);
-    Assert.Null(s.EntryPrice);
-  }
-  [Fact] public void ChasingTheNextPriceSkipsInsteadOfInventingAnEntry()
-  {
-    var s = Pending(); ObservationEngine.ApplyTick(s, new("NSE_123", 1100, Now, Now, 1), Now, 5);
-    Assert.Equal("SKIPPED", s.Status); Assert.Null(s.EntryPrice);
   }
 }

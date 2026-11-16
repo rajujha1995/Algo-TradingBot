@@ -4,10 +4,10 @@ using TradingBot.Application;
 namespace TradingBot.Infrastructure;
 
 public sealed record EquityInstrument(string Code, string Symbol, string Exchange, string Isin);
-public sealed record Gainer(string Symbol, string Exchange, string Code, decimal Price, decimal ChangePercent, decimal Volume);
+public sealed record Gainer(string Symbol, string Exchange, string Code, decimal Price, decimal ChangePercent, decimal Volume, decimal? PreviousClose = null, decimal? TodayClose = null, string? CloseDate = null, string CloseStatus = "Not verified", decimal? LatestClose = null, string? LatestCloseDate = null);
 public sealed record GainersSnapshot(IReadOnlyList<Gainer> Items, int UniverseCount, int QuotedCount, DateTimeOffset ScanStartedUtc, DateTimeOffset FetchedUtc, string Scope, string Freshness);
 
-public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock)
+public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock, IClosingPriceReader? history = null)
 {
   readonly SemaphoreSlim gate = new(1, 1);
   GainersSnapshot? cached;
@@ -15,7 +15,7 @@ public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock)
   {
     await gate.WaitAsync(ct);
     try {
-      if (cached != null && clock.GetUtcNow() - cached.FetchedUtc < TimeSpan.FromMinutes(5)) return cached;
+      if (cached != null && clock.GetUtcNow() - cached.FetchedUtc < TimeSpan.FromMinutes(1)) return cached;
       var started = clock.GetUtcNow();
       var instruments = ParseInstruments(await broker.GetInstrumentsAsync(ct));
       if (instruments.Count == 0) throw new InvalidOperationException("Broker instrument master contains no supported cash equities. Gainers are unavailable.");
@@ -28,9 +28,22 @@ public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock)
         all.AddRange(result.Items);
       }
       if (quoted == 0) throw new InvalidOperationException("No usable equity quotes returned. Gainers are unavailable.");
-      cached = new(all.OrderByDescending(x => x.ChangePercent).ThenBy(x => x.Symbol, StringComparer.Ordinal).Take(10).ToList(), instruments.Count, quoted, started, clock.GetUtcNow(),
+      var leaders = all.OrderByDescending(x => x.ChangePercent).ThenBy(x => x.Symbol, StringComparer.Ordinal).Take(10).ToList();
+      for (var i = 0; i < leaders.Count; i++) {
+        var now = clock.GetUtcNow();
+        if (history == null) { leaders[i] = leaders[i] with { CloseStatus = "Daily close unavailable" }; continue; }
+        try {
+          var daily = await history.GetDailyCandlesAsync(leaders[i].Code, now.AddDays(-7).ToUnixTimeMilliseconds(), now.ToUnixTimeMilliseconds(), ct);
+          var close = ClosingPrice(daily, leaders[i].Code, now);
+          var today = TradingSessionPolicy.InIndia(now).Date;
+          var latest = RealtimeResearchEngine.ParseCandles(daily, leaders[i].Code).Where(x => x.Close > 0 && x.Volume > 0 && (TradingSessionPolicy.InIndia(new DateTimeOffset(x.TimestampUtc, TimeSpan.Zero)).Date < today || (TradingSessionPolicy.InIndia(new DateTimeOffset(x.TimestampUtc, TimeSpan.Zero)).Date == today && AfterNormalClose(now)))).OrderByDescending(x => x.TimestampUtc).FirstOrDefault();
+          leaders[i] = leaders[i] with { TodayClose = close.Price, CloseDate = close.Date, LatestClose = latest?.Close, LatestCloseDate = latest == null ? null : TradingSessionPolicy.InIndia(new DateTimeOffset(latest.TimestampUtc, TimeSpan.Zero)).ToString("yyyy-MM-dd"), CloseStatus = close.Price == null ? "Today's dated close pending / unavailable" : "Broker daily close; not exchange-certified" };
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception) { leaders[i] = leaders[i] with { CloseStatus = "Daily close unavailable; not replaced with LTP" }; }
+      }
+      cached = new(leaders, instruments.Count, quoted, started, clock.GetUtcNow(),
         "NSE/BSE cash EQUITY across market caps, no cap filter; one listing per ISIN, NSE preferred. Unclassified instrument rows excluded.",
-        "Broker snapshot; quote trading date and per-symbol freshness are not supplied. May reflect the previous session before market open or on holidays. Refresh manually; server reuses scans for 5 minutes. Not trading recommendations.");
+        "Quotes are timestamped fetch snapshots, not a streamed market-wide ranking. Today's close uses a dated broker 1day candle after 16:00 IST on normal weekdays; it is not an exchange-certified official close and may be revised. Missing closes remain unavailable. Server scan cache: one minute.");
       return cached;
     } finally { gate.Release(); }
   }
@@ -70,8 +83,19 @@ public sealed class TopGainersService(ITradingBroker broker, TimeProvider clock)
       if (price is null or <= 0 || previous is null or <= 0 || volume is null or <= 0) continue;
       quoted++;
       var change = (price.Value - previous.Value) / previous.Value * 100m;
-      if (change > 0) items.Add(new(instrument.Symbol, instrument.Exchange, instrument.Code, price.Value, change, volume.Value));
+      if (change > 0) items.Add(new(instrument.Symbol, instrument.Exchange, instrument.Code, price.Value, change, volume.Value, previous));
     }
     return (items, quoted);
+  }
+  public static bool AfterNormalClose(DateTimeOffset now) {
+    var ist = TradingSessionPolicy.InIndia(now);
+    return ist.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday) && ist.TimeOfDay >= TimeSpan.FromHours(16);
+  }
+  public static (decimal? Price, string? Date) ClosingPrice(JsonElement response, string code, DateTimeOffset now) {
+    if (!AfterNormalClose(now)) return (null, null);
+    var today = TradingSessionPolicy.InIndia(now).Date;
+    var bars = RealtimeResearchEngine.ParseCandles(response, code);
+    var bar = bars.Where(x => TradingSessionPolicy.InIndia(new DateTimeOffset(x.TimestampUtc, TimeSpan.Zero)).Date == today && x.Close > 0 && x.Volume > 0).OrderByDescending(x => x.TimestampUtc).FirstOrDefault();
+    return bar == null ? (null, null) : (bar.Close, today.ToString("yyyy-MM-dd"));
   }
 }

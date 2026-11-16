@@ -31,14 +31,14 @@ foreach ($environment in @('production')) {
   }
  }
 }
-Invoke-Checked 'dotnet' @('tool','restore')
+
 Invoke-Checked 'dotnet' @('restore','api/TradingBot.sln','--locked-mode')
 Push-Location ui
 try { Invoke-Checked 'npm' @('ci'); Invoke-Checked 'npm' @('run','build') } finally { Pop-Location }
 Invoke-Checked 'dotnet' @('build','api/TradingBot.sln','--no-restore')
 foreach ($environment in @('Production')) {
  Set-AppEnvironment $environment
- Invoke-Checked 'dotnet' @('run','--no-build','--no-launch-profile','--project','api/TradingBot.Api','--','--migrate-only')
+ Invoke-Checked 'dotnet' @('run','--no-build','--no-launch-profile','--project','api/TradingBot.Api','--','--initialize-only')
 }
 Write-Host 'Setup complete. Run .\scripts\start.ps1.'
 Write-Host 'Read LOCAL_ADMIN_PASSWORD in api/.env.production to sign in.'

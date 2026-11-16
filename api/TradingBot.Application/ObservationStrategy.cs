@@ -2,7 +2,7 @@ using TradingBot.Domain;
 namespace TradingBot.Application;
 
 public sealed record ObservationEvidence(IReadOnlyList<Candle> Candles, decimal? Ema20, decimal? Rsi14, decimal? Atr14, decimal? RelativeVolume, decimal? Vwap, decimal? BreakoutLevel, string News = "Not checked: no verified news provider connected.", string Context = "Index/sector confirmation not implemented. Technical-only research.");
-public sealed record ObservationDecision(bool Qualifies, string Reason, DateTime? CandleCloseUtc, decimal Entry, decimal Stop, decimal Target, decimal EntryLimit, int CapitalFitQuantity, ObservationEvidence Evidence);
+public sealed record ObservationDecision(bool Qualifies, string Reason, DateTime? CandleCloseUtc, decimal Entry, decimal Stop, decimal Target, ObservationEvidence Evidence);
 
 public static class ObservationStrategy
 {
@@ -23,11 +23,11 @@ public static class ObservationStrategy
   public static decimal Fees(decimal entry, decimal exit, int quantity) => LegFees(entry * quantity, false) + LegFees(exit * quantity, true);
   public static decimal Net(decimal entry, decimal exit, int quantity) => (exit - entry) * quantity - Fees(entry, exit, quantity);
 
-  public static ObservationDecision Evaluate(IReadOnlyList<Candle> input, DateTimeOffset now, decimal capital = 1000)
+  public static ObservationDecision Evaluate(IReadOnlyList<Candle> input, DateTimeOffset now)
   {
     var candles = input.Where(x => x.TimestampUtc.AddMinutes(5) <= now.UtcDateTime.AddSeconds(-2)).OrderBy(x => x.TimestampUtc).TakeLast(200).ToList();
     var empty = new ObservationEvidence(candles.TakeLast(60).ToList(), null, null, null, null, null, null);
-    ObservationDecision Wait(string reason) => new(false, reason, candles.Count > 0 ? candles[^1].TimestampUtc.AddMinutes(5) : null, 0, 0, 0, 0, 0, empty);
+    ObservationDecision Wait(string reason) => new(false, reason, candles.Count > 0 ? candles[^1].TimestampUtc.AddMinutes(5) : null, 0, 0, 0, empty);
     if (candles.Count < 60) return Wait("WAIT: need at least 60 completed five-minute candles for indicator warmup.");
     if (candles.Select(x => x.TimestampUtc).Distinct().Count() != candles.Count || candles.Any(x => x.Open <= 0 || x.Low <= 0 || x.High < Math.Max(x.Open, x.Close) || x.Low > Math.Min(x.Open, x.Close) || x.High < x.Low || x.Volume < 0)) return Wait("WAIT: invalid or duplicate OHLCV bars.");
     for (var i = 1; i < candles.Count; i++) {
@@ -64,10 +64,8 @@ public static class ObservationStrategy
     if (atr <= 0 || latest.Volume <= 0) failures.Add("volatility or volume is unusable");
     var entry = latest.Close; var stop = Math.Min(latest.Low, entry - atr); var risk = entry - stop; var target = entry + 2 * risk;
     if (stop <= 0 || risk <= 0 || Net(entry, target, 10) < 1.5m * Math.Abs(Net(entry, stop, 10))) failures.Add("estimated net reward/risk is below 1.5 after assumed costs");
-    var capitalQty = stop <= 0 ? 0 : Math.Max(0, (int)Math.Min(1000, decimal.Floor(capital / (entry * 1.001m))));
-    while (capitalQty > 0 && (capitalQty * entry + LegFees(entry * capitalQty, false) > capital || Math.Abs(Net(entry, stop, capitalQty)) > 50)) capitalQty--;
-    var reason = failures.Count > 0 ? "NO TRADE: " + string.Join("; ", failures) + "."
+    var reason = failures.Count > 0 ? "NO SETUP: " + string.Join("; ", failures) + "."
       : $"Completed 5-minute close {entry:F2} > prior 20-bar high {level:F2}; above EMA20 {ema:F2} and VWAP {vwap:F2}; relative volume {relativeVolume:F2}×; RSI14 {rsi:F1}; ATR14 {atr:F2}. Top-quarter close confirmed. Stop invalidates the setup; target is a 2R scenario, not a forecast. News/index context not checked.";
-    return new(failures.Count == 0, reason, closeUtc, entry, stop, target, entry + atr * .25m, capitalQty, evidence);
+    return new(failures.Count == 0, reason, closeUtc, entry, stop, target, evidence);
   }
 }

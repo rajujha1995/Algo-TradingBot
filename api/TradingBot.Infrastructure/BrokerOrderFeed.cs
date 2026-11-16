@@ -8,7 +8,7 @@ namespace TradingBot.Infrastructure;
 public sealed record BrokerOrderEvent(string OrderId, DateTimeOffset PublishedUtc, DateTimeOffset ReceivedUtc, string Status, string StatusCode, string? Name, string? Side, decimal? RequestedQuantity, decimal? FilledLots, decimal? ExecutionPrice);
 
 // Read-only subscription to orders placed elsewhere. This service cannot send an order.
-public sealed class BrokerOrderFeed(TradingOptions options, TimeProvider clock) : BackgroundService
+public sealed class BrokerOrderFeed(TradingOptions options, TimeProvider clock, RealtimeJournalStore? journal = null) : BackgroundService
 {
   readonly object sync = new();
   readonly Dictionary<string, BrokerOrderEvent> events = new();
@@ -64,13 +64,18 @@ public sealed class BrokerOrderFeed(TradingOptions options, TimeProvider clock) 
           if (json.ValueKind != JsonValueKind.Object || !json.TryGetProperty("mode", out var mode) || mode.ValueKind != JsonValueKind.String || mode.GetString() != "order_update") continue;
           var id = json.GetProperty("data").GetProperty("order_id").GetString();
           if (string.IsNullOrWhiteSpace(id)) continue;
+          BrokerOrderEvent? recorded;
           lock (sync) {
             events.TryGetValue(id, out var previous);
             var update = Merge(previous, json, clock.GetUtcNow());
             if (update != null) { events[id] = update; failures = 0; }
+            recorded = update;
             while (events.Count > 200) events.Remove(events.Values.MinBy(x => x.PublishedUtc)!.OrderId);
             Status = "Receiving broker order events; balances and positions refresh via REST";
           }
+          if (recorded != null && journal != null) await journal.UpdateAsync(state => {
+            if (!state.BrokerEvents.Any(x => x.OrderId == recorded.OrderId && x.PublishedUtc == recorded.PublishedUtc && x.StatusCode == recorded.StatusCode)) state.BrokerEvents.Add(recorded);
+          }, lifetime.Token);
           ReconcileRequested?.Invoke();
         }
       } catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }

@@ -5,13 +5,13 @@ using TradingBot.Application;
 namespace TradingBot.Infrastructure;
 // Read-only by construction: no method can send an HTTP POST, PUT or DELETE.
 // Raw JSON responses retain the broker's documented schema without guessed field mapping.
-public sealed partial class IndstocksBrokerAdapter(HttpClient client, TradingOptions options) : ITradingBroker, IBrokerAccountReader
+public sealed partial class IndstocksBrokerAdapter(HttpClient client, TradingOptions options) : ITradingBroker, IBrokerAccountReader, IClosingPriceReader
 {
   readonly SemaphoreSlim requests = new(1, 1);
   DateTime lastRequest = DateTime.MinValue;
   async Task<string> GetAsync(string path, CancellationToken ct)
   {
-    if (string.IsNullOrWhiteSpace(options.AccessToken)) throw new InvalidOperationException("INDstocks token is not configured. Paper simulation remains available.");
+    if (string.IsNullOrWhiteSpace(options.AccessToken)) throw new InvalidOperationException("INDstocks token is not configured. Read-only monitoring requires a valid backend token.");
     await requests.WaitAsync(ct);
     try
     {
@@ -36,6 +36,11 @@ public sealed partial class IndstocksBrokerAdapter(HttpClient client, TradingOpt
   public Task<JsonElement> GetPositionsAsync(CancellationToken ct) => JsonAsync("/portfolio/positions", ct);
   public Task<JsonElement> GetOrderBookAsync(CancellationToken ct) => JsonAsync("/order-book", ct);
   public Task<JsonElement> GetTradeBookAsync(CancellationToken ct) => JsonAsync("/trade-book?segment=EQUITY", ct);
+  public Task<JsonElement> GetDailyCandlesAsync(string code, long start, long end, CancellationToken ct) {
+    ValidateCode(code);
+    if (code.Contains(',') || start <= 0 || end <= start || end - start > TimeSpan.FromDays(30).TotalMilliseconds) throw new ArgumentException("Select one cash equity and a daily range up to 30 days.");
+    return JsonAsync($"/market/historical/1day?scrip-codes={Uri.EscapeDataString(code)}&start_time={start}&end_time={end}", ct);
+  }
   static void ValidateCode(string codes) { if (codes.Length > 8000 || codes.Split(',').Length > 500 || !Codes().IsMatch(codes)) throw new InvalidOperationException("Use documented equity scrip codes, for example NSE_3045; up to 500 comma-separated codes."); }
   [GeneratedRegex(@"^(?:NSE|BSE)_\d+(?:,(?:NSE|BSE)_\d+){0,499}$")] private static partial Regex Codes();
   public Task<JsonElement> GetQuotesAsync(string scripCodes, CancellationToken ct) { ValidateCode(scripCodes); return JsonAsync("/market/quotes/full?scrip-codes=" + Uri.EscapeDataString(scripCodes), ct); }

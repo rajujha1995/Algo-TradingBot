@@ -6,7 +6,7 @@ namespace TradingBot.Infrastructure;
 public sealed record AccountSection(JsonElement? Data, DateTimeOffset? FetchedUtc, string? Error);
 public sealed record BrokerHoldingMark(string Symbol, string? Code, decimal? Quantity, decimal? AveragePrice, decimal? Price, DateTime? PriceUtc, decimal? MarketValue, decimal? UnrealizedPnl, bool Fresh, string Note);
 
-public sealed class BrokerAccountMonitor(ITradingBroker broker, IBrokerAccountReader reader, ObservationPriceFeed prices, BrokerOrderFeed orders, TradingOptions options, TimeProvider clock) : BackgroundService
+public sealed class BrokerAccountMonitor(ITradingBroker broker, IBrokerAccountReader reader, ObservationPriceFeed prices, BrokerOrderFeed orders, TradingOptions options, TimeProvider clock, RealtimeJournalStore? journal = null) : BackgroundService
 {
   readonly object sync = new();
   readonly Dictionary<string, AccountSection> sections = new();
@@ -36,9 +36,9 @@ public sealed class BrokerAccountMonitor(ITradingBroker broker, IBrokerAccountRe
       var holdingRows = Rows(sections.GetValueOrDefault("holdings")?.Data);
       var marks = holdingRows.Select(row => Mark(row, master, code => enabled ? prices.Fresh(code) : null)).ToArray();
       var positionMarks = Rows(sections.GetValueOrDefault("positions")?.Data).Select(row => Mark(row, master, code => enabled ? prices.Fresh(code) : null, "net_qty")).ToArray();
-      var watchlist = master.Where(x => x.Exchange == "NSE" && ObservationEngine.Symbols.Contains(x.Symbol)).Select(x => { var tick = enabled ? prices.Fresh(x.Code) : null; return new { x.Symbol, x.Code, price = tick?.Price, priceUtc = tick?.Utc, fresh = tick != null }; }).ToArray();
+      var watchlist = master.Where(x => x.Exchange == "NSE" && RealtimeResearchEngine.Symbols.Contains(x.Symbol)).Select(x => { var tick = enabled ? prices.Fresh(x.Code) : null; return new { x.Symbol, x.Code, price = tick?.Price, priceUtc = tick?.Utc, fresh = tick != null }; }).ToArray();
       return new { enabled, serverUtc = clock.GetUtcNow(), sections = new Dictionary<string, AccountSection>(sections), holdingMarks = marks, positionMarks, watchlist, priceFeed = prices.Status, orderFeed = orders.Snapshot(), mappingStatus,
-        policy = "Read-only. Prices and order events use WebSockets; account sections refresh about every 30 seconds and after order events. All sections retain their own fetch times. Missing/stale prices are not replaced with zero. No broker orders can be submitted here. The emergency stop does not cancel orders placed in your broker account elsewhere." };
+        policy = "Read-only. Prices and order events use WebSockets; account sections refresh about every 30 seconds and after order events. All sections retain their own fetch times. Missing/stale prices are not replaced with zero. No broker orders can be submitted here. Stopping the watch does not cancel orders placed in your broker account elsewhere." };
     }
   }
 
@@ -83,7 +83,16 @@ public sealed class BrokerAccountMonitor(ITradingBroker broker, IBrokerAccountRe
     await Fetch("positions", broker.GetPositionsAsync, JsonValueKind.Array);
     var generation = orders.Generation;
     if (await Fetch("orders", reader.GetOrderBookAsync, JsonValueKind.Array)) orders.AcknowledgeReconciliation(generation);
-    await Fetch("trades", reader.GetTradeBookAsync, JsonValueKind.Array);
+    if (await Fetch("trades", reader.GetTradeBookAsync, JsonValueKind.Array) && journal != null) {
+      JsonElement[] fills;
+      lock (sync) fills = Rows(sections.GetValueOrDefault("trades")?.Data);
+      await journal.UpdateAsync(state => {
+        foreach (var fill in fills.Where(x => x.TryGetProperty("fill_id", out _) && x.TryGetProperty("trade_date", out _))) {
+          var id = fill.GetProperty("fill_id").ToString(); var date = fill.GetProperty("trade_date").ToString();
+          if (!state.BrokerFills.Any(x => x.GetProperty("fill_id").ToString() == id && x.GetProperty("trade_date").ToString() == date)) state.BrokerFills.Add(fill.Clone());
+        }
+      }, ct);
+    }
     try {
       if (master.Count == 0 || clock.GetUtcNow() - masterFetched > TimeSpan.FromHours(6)) {
         var resolved = TopGainersService.ParseInstruments(await broker.GetInstrumentsAsync(ct), deduplicateListings: false);
@@ -94,7 +103,7 @@ public sealed class BrokerAccountMonitor(ITradingBroker broker, IBrokerAccountRe
         var holdings = Rows(sections.GetValueOrDefault("holdings")?.Data);
         var positions = Rows(sections.GetValueOrDefault("positions")?.Data);
         var selected = holdings.Concat(positions).Select(row => Resolve(row, master)).Where(x => x != null).Cast<EquityInstrument>()
-          .Concat(master.Where(x => x.Exchange == "NSE" && ObservationEngine.Symbols.Contains(x.Symbol))).DistinctBy(x => x.Code).Take(500).ToArray();
+          .Concat(master.Where(x => x.Exchange == "NSE" && RealtimeResearchEngine.Symbols.Contains(x.Symbol))).DistinctBy(x => x.Code).Take(500).ToArray();
         prices.ConfigureFor("account", selected);
         mappingStatus = $"Resolved {selected.Length} cash-equity price subscriptions (maximum 500). Ambiguous tokens or unresolved IDs remain unpriced; no exchange is guessed. Non-equity positions are read-only snapshots.";
       }

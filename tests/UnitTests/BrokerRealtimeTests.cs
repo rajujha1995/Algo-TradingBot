@@ -7,7 +7,7 @@ namespace UnitTests;
 public class BrokerRealtimeTests
 {
   static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-11-16T05:00:00Z");
-  static TradingOptions Options(string token = "test-not-real") => new() { AccessToken = token, LocalPassword = "disposable-test-password", DatabasePath = "trading-prod.db" };
+  static TradingOptions Options(string token = "test-not-real") => new() { AccessToken = token, LocalPassword = "disposable-test-password", JournalPath = "realtime-journal.json" };
   static JsonElement Json(string text) { using var document = JsonDocument.Parse(text); return document.RootElement.Clone(); }
   static JsonElement Event(string status, long timestamp, string extra = "")
   {

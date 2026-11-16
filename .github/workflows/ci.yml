@@ -20,11 +20,9 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - run: dotnet tool restore
       - run: dotnet restore api/TradingBot.sln --locked-mode
       - run: dotnet build api/TradingBot.sln --no-restore --configuration Release
       - run: dotnet test api/TradingBot.sln --no-build --configuration Release
-      - run: dotnet ef migrations has-pending-model-changes --project api/TradingBot.Infrastructure
       - run: npm ci
         working-directory: ui
       - run: npm run check

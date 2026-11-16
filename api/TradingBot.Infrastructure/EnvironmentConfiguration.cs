@@ -22,15 +22,9 @@ public static class EnvironmentConfiguration
     {
       Root = root,
       Environment = environment,
-      TradingMode = Get("TRADING_MODE", "PAPER"),
       LocalPassword = Get("LOCAL_ADMIN_PASSWORD"),
       AccessToken = Get("INDSTOCKS_ACCESS_TOKEN"),
-      DatabasePath = Path.GetFullPath(Get("DATABASE_PATH", "data/trading-prod.db"), Path.Combine(root, "api")),
-      CapitalLimit = TradingOptions.ParseDecimal(Get("TRADING_CAPITAL_LIMIT", "1000")),
-      DailyLossLimit = TradingOptions.ParseDecimal(Get("MAX_DAILY_PLANNED_LOSS", "50")),
-      TotalLossLimit = TradingOptions.ParseDecimal(Get("MAX_TOTAL_PLANNED_LOSS", "100")),
-      MaxOpenPositions = int.Parse(Get("MAX_OPEN_POSITIONS", "1")),
-      SlippageBps = TradingOptions.ParseDecimal(Get("PAPER_SLIPPAGE_BPS", "5"))
+      JournalPath = Path.GetFullPath(Get("JOURNAL_PATH", "data/realtime-journal.json"), Path.Combine(root, "api"))
     };
     options.Validate(); return options;
   }

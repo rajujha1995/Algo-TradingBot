@@ -10,7 +10,7 @@ try {
  Invoke-Checked 'npm' @('test')
  Invoke-Checked 'npm' @('run','build')
  if ($EndToEnd) {
-  if (-not $env:E2E_PASSWORD) { throw 'Set E2E_PASSWORD to the disposable test operator password and start the isolated test host first. E2E creates paper orders and emergency-stops the engine.' }
+  if (-not $env:E2E_PASSWORD) { throw 'Set E2E_PASSWORD to the disposable test operator password and start the isolated test host with E2E_ISOLATED=1 first. E2E checks authentication and removed execution routes; no broker orders are sent.' }
   Invoke-Checked 'npx' @('playwright','install','chromium')
   Invoke-Checked 'npm' @('run','test:e2e')
  }

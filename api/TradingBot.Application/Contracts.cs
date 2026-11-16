@@ -1,22 +1,8 @@
 using System.Text.Json;
-using TradingBot.Domain;
 namespace TradingBot.Application;
-// All callers, including hosted workers, use the same process-wide gate.
-// A database lock additionally prevents two API processes owning the same environment.
-public sealed class ExecutionGate { public SemaphoreSlim Mutex { get; } = new(1, 1); }
-public interface ITradingStore
+public interface IClosingPriceReader
 {
-  Task InitializeAsync(CancellationToken ct = default);
-  Task<TradingControlState> GetStateAsync(CancellationToken ct = default);
-  Task<Portfolio> GetPortfolioAsync(CancellationToken ct = default);
-  Task<IReadOnlyList<Order>> GetOrdersAsync(CancellationToken ct = default);
-  Task<IReadOnlyList<Position>> GetPositionsAsync(CancellationToken ct = default);
-  Task<IReadOnlyList<Trade>> GetTradesAsync(CancellationToken ct = default);
-  Task<IReadOnlyList<SystemEvent>> GetEventsAsync(CancellationToken ct = default);
-  Task<TradingControlState> StopAsync(CancellationToken ct = default);
-  Task<TradingControlState> RecoverAsync(string confirmation, CancellationToken ct = default);
-  Task<Order> SubmitPaperAsync(PaperOrderRequest request, CancellationToken ct = default);
-  Task CompletePendingAsync(CancellationToken ct = default);
+  Task<JsonElement> GetDailyCandlesAsync(string code, long start, long end, CancellationToken ct);
 }
 public interface ITradingBroker
 {
@@ -33,15 +19,6 @@ public interface IBrokerAccountReader
 {
   Task<JsonElement> GetOrderBookAsync(CancellationToken ct);
   Task<JsonElement> GetTradeBookAsync(CancellationToken ct);
-}
-public sealed class TradingRiskService(TradingOptions options)
-{
-  public void CheckBuy(decimal cash, decimal reserved, decimal exposure, int openPositions, bool pendingBuy, decimal totalCost, decimal dailyNet, decimal totalNet)
-  {
-    if (dailyNet <= -options.DailyLossLimit || totalNet <= -options.TotalLossLimit) throw new InvalidOperationException("Loss budget exhausted.");
-    if (pendingBuy || openPositions >= options.MaxOpenPositions) throw new InvalidOperationException("A position or pending buy already exists.");
-    if (totalCost <= 0 || totalCost > cash - reserved || totalCost + exposure + reserved > options.CapitalLimit) throw new InvalidOperationException("Insufficient funds or capital limit exceeded including charges and pending commitments.");
-  }
 }
 // Indicative NSE delivery model, not a contract note or tax engine. Values are documented.
 public static class TradingCosts

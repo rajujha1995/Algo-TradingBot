@@ -1,3 +1,4 @@
+import { workspace } from "./realtime-fixtures";
 import { test, expect } from "@playwright/test";
 
 test("account monitoring is read-only, shows streamed marks separately, and hides failed/stale prices", async ({ page }) => {
@@ -12,13 +13,12 @@ test("account monitoring is read-only, shows streamed marks separately, and hide
       trades: { data: { status: "success", data: [] }, fetchedUtc: now(), error: null },
     } : {}, holdingMarks: enabled ? [{ symbol: "TEST_HOLDING", code: "NSE_1", quantity: 10, averagePrice: 100, price: 110.11, priceUtc: now(), marketValue: 1101.1, unrealizedPnl: 101.1, fresh: true, note: "Fixture mark" }] : [], positionMarks: [], watchlist: enabled ? [{ symbol: "TEST_HOLDING", code: "NSE_1", price: 110.11, priceUtc: now(), fresh: true }] : [], orderFeed: { connected: enabled, reconciled: enabled, status: enabled ? "Receiving fixture order events" : "Stopped", limitation: "Lots are not share quantities", events: enabled ? [{ orderId: "FIXTURE_1", publishedUtc: now(), receivedUtc: now(), status: "Partially filled", name: "TEST_HOLDING", side: "BUY", requestedQuantity: 10, filledLots: null, executionPrice: null }] : [] } };
   }
-  await page.route("**/api/settings", r => r.fulfill({ json: { environment: "Production", tradingMode: "PAPER", brokerTokenConfigured: true } }));
-  await page.route("**/api/dashboard", r => r.fulfill({ json: { investedAmount: 0, unrealizedPercent: 0, currentPortfolioValue: 0, unrealizedPnl: 0, realizedPnl: 0, todayNetPnl: 0, availableCash: 1000, totalCharges: 0, openPositions: 0, activeOrders: 0, totalAccountValue: 1000, reservedCash: 0 } }));
-  await page.route("**/api/system/status", r => r.fulfill({ json: { state: "STOPPED" } }));
-  await page.route("**/api/trading/status", r => r.fulfill({ json: { requestedMode: "PAPER", serverUtc: now() } }));
+  await page.route("**/api/settings", r => r.fulfill({ json: { environment: "Production", workspace: "REALTIME", brokerTokenConfigured: true } }));
   await page.route("**/api/auth/csrf", r => r.fulfill({ json: { token: "fixture" } }));
   await page.route("**/api/broker/account", r => failed ? r.fulfill({ status: 503, json: { error: "Fixture connection lost" } }) : r.fulfill({ json: snapshot() }));
   await page.route("**/api/broker/account/monitor", r => { toggles++; enabled = r.request().postDataJSON().enabled; return r.fulfill({ json: snapshot() }); });
+  await page.route("**/api/workspace", r => r.fulfill({json: workspace()}));
+  await page.route("**/api/market/top-gainers", r => r.fulfill({status:503,json:{error:"Unavailable fixture"}}));
   await page.goto("/");
   await page.getByRole("navigation").getByRole("button", { name: "Broker Account", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start account monitoring", exact: true })).toBeEnabled();

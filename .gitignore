@@ -31,6 +31,10 @@ test-results/
 .idea/
 .DS_Store
 .runtime/
+**/realtime-journal*.json
+*.json.lock
+*.previous.json
+*.tmp-*
 *.zip
 
 *.tsbuildinfo

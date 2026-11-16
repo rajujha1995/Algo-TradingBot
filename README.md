@@ -1,12 +1,16 @@
 # AlgoTrade source
 
-React/TypeScript UI and .NET 10 API for Indian cash-equity paper research and read-only broker account monitoring. Real-money execution is disabled.
+React/TypeScript UI and .NET 10 API for real-time Indian cash-equity research and read-only INDstocks account monitoring. There is one Production workspace. Broker order submission and simulated execution are disabled.
 
-This repository contains application source, tests, build/dependency manifests and automation scripts. Private application settings, all environment files (including examples), databases, logs, dependency directories, build outputs, source archives and local operator documentation are excluded.
+Start Watching requires an exact confirmation and the permitted IST start window. The engine evaluates completed five-minute candles with fresh streamed prices, records qualifying setups for Reliance, ICICI Bank and SBI, and tracks subsequent observed reference-price movements. These observations are not trades, fills or realized profits. Missing data is flagged; outcomes during gaps are not invented. News/index confirmation and special-session calendars are not connected.
+
+The private JSON journal stores watch sessions, suggestions with candle evidence, coverage, broker-reported order events and actual equity fills. Writes are serialized and atomic with a previous-version backup and single-process lease. Corrupt history is never silently reset; interrupted sessions pause after restart. Existing SQLite history is not opened or deleted. Monitoring and watching require manual activation after startup.
+
+The richer dashboard includes a watch journal, weekly review, read-only account view and top gainers across available NSE/BSE cash equities. Gainers are fetched ranking snapshots. Latest quote, previous close and today's dated broker daily close remain separate; unavailable closes are not replaced with quotes. Broker daily closes are not exchange-certified and may be revised. A week of observations does not enable real orders automatically.
 
 ## Build and test
 
-Requires the .NET 10 SDK and Node.js. From the repository root:
+Requires .NET 10 SDK and a supported Node.js release. From the repository root:
 
 ```powershell
 dotnet restore api/TradingBot.sln --locked-mode
@@ -18,8 +22,6 @@ npm run build
 npm test
 ```
 
-Compilation and mocked/disposable-database tests do not require broker credentials. Browser tests that alter state must use an isolated test host and database.
+Compilation and unit/integration tests do not require broker credentials. Browser API tests require a disposable journal and isolated host. Never run tests against private account history.
 
-Running the application requires private local configuration supplied separately. Obtain or create that configuration locally before running the startup/setup scripts. No application configuration values, passwords or broker tokens are supplied in this repository. Do not upload local configuration or trading records.
-
-PAPER research scenarios are hypothetical and are not broker fills or proof of profitability. Actual account monitoring is read-only. The application never authorizes real orders by selecting a UI mode.
+Running requires private local configuration supplied separately. This source-only repository intentionally excludes all environment files and examples, application settings/configuration values, credentials, trading/account records, dependency directories, generated build outputs and local operational documentation. Do not upload them.

@@ -10,6 +10,6 @@ public class SingleConfigurationTests
   [InlineData("Staging")]
   public void AlternateConfigurationCannotBeLoaded(string environment) =>
     Assert.Throws<InvalidOperationException>(() => EnvironmentConfiguration.Load(Path.GetTempPath(), environment));
-  [Fact] public void DevelopmentCannotBeEnabledEvenInPaperMode() =>
-    Assert.Throws<InvalidOperationException>(() => new TradingOptions { Environment = "Development", TradingMode = "PAPER", DatabasePath = "trading-prod.db", LocalPassword = "disposable-test-password" }.Validate());
+  [Fact] public void DevelopmentCannotBeEnabled() =>
+    Assert.Throws<InvalidOperationException>(() => new TradingOptions { Environment = "Development", JournalPath = "realtime-journal.json", LocalPassword = "disposable-test-password" }.Validate());
 }

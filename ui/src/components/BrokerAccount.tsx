@@ -50,7 +50,7 @@ export function BrokerAccount() {
   return <div className="broker-account">
     <section className="panel research-panel">
       <div className="panel-heading"><h2>Broker account · real data, read-only</h2><Button onClick={toggle} disabled={!data || busy}>{busy ? "Updating…" : data?.enabled ? "Stop account monitoring" : "Start account monitoring"}</Button></div>
-      <p>Account monitoring is separate from Start Trading. It reads your actual broker account and streams available prices/order events without placing orders. PAPER cash and research P&L are separate.</p>
+      <p>Account monitoring is separate from Start Watching. It reads your actual broker account and streams available prices/order events without placing orders. Broker activity and watched reference-price movements are recorded separately.</p>
       {error && <p role="alert" className="error">{error} Last displayed snapshots may be stale.</p>}
       {data && <><p><strong>{data.enabled ? "Monitoring enabled" : "Monitoring stopped"}</strong> · {data.priceFeed}</p><p>Order feed: {error || elapsed > 10000 ? "Connection state unknown; snapshot stale" : data.orderFeed.status} · {!error && elapsed <= 10000 && data.orderFeed.connected && data.orderFeed.reconciled ? "REST order book checked for this connection" : "Reconciliation pending / stream unverified"}</p>
         <p className="footnote">{data.policy}</p><p className="footnote">{data.mappingStatus}</p>

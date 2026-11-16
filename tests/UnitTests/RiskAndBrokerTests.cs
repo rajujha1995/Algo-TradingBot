@@ -6,21 +6,13 @@ namespace UnitTests;
 
 public class RiskAndBrokerTests
 {
-  static TradingOptions Options() => new() { DatabasePath = "trading-prod.db", LocalPassword = "a-unique-local-test-password" };
+  static TradingOptions Options() => new() { JournalPath = "realtime-journal.json", LocalPassword = "a-unique-local-test-password" };
   [Theory]
-  [InlineData("Development", "LIVE")]
-  [InlineData("Production", "LIVE")]
-  [InlineData("Staging", "PAPER")]
-  public void InvalidEnvironmentsAndLiveAreRejected(string environment, string mode) => Assert.Throws<InvalidOperationException>(() => (Options() with { Environment = environment, TradingMode = mode }).Validate());
-  [Fact] public void RejectsRetiredDatabaseName() => Assert.Throws<InvalidOperationException>(() => (Options() with { DatabasePath = "retired.db" }).Validate());
+  [InlineData("Development")]
+  [InlineData("Staging")]
+  public void AlternateEnvironmentsAreRejected(string environment) => Assert.Throws<InvalidOperationException>(() => (Options() with { Environment = environment }).Validate());
+  [Fact] public void JournalCannotOverwriteDatabase() => Assert.Throws<InvalidOperationException>(() => (Options() with { JournalPath = "retired.db" }).Validate());
   [Fact] public void WeakPasswordsAreRejected() => Assert.Throws<InvalidOperationException>(() => (Options() with { LocalPassword = "password" }).Validate());
-  [Theory]
-  [InlineData(1000, 0, 0, 0, false, 1001, 0, 0)]
-  [InlineData(1000, 200, 0, 0, true, 100, 0, 0)]
-  [InlineData(1000, 0, 100, 1, false, 100, 0, 0)]
-  [InlineData(1000, 0, 0, 0, false, 100, -50, 0)]
-  [InlineData(1000, 0, 0, 0, false, 100, 0, -100)]
-  public void RiskRejectsUnsafeBuys(decimal cash, decimal reserved, decimal exposure, int count, bool pending, decimal cost, decimal day, decimal total) => Assert.Throws<InvalidOperationException>(() => new TradingRiskService(Options()).CheckBuy(cash, reserved, exposure, count, pending, cost, day, total));
   [Fact] public void ChargesArePositiveAndExitIncludesDpCost() { Assert.True(TradingCosts.Estimate(100, false) > 0); Assert.True(TradingCosts.Estimate(100, true) > 15.93m); }
   [Fact] public async Task LiveOrderAdapterNeverSendsARequest() { var handler = new RecordingHandler(HttpStatusCode.OK); var broker = new IndstocksBrokerAdapter(new HttpClient(handler), Options()); await Assert.ThrowsAsync<NotSupportedException>(() => broker.PlaceOrderAsync(default)); Assert.Equal(0, handler.Calls); }
   [Theory]
